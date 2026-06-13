@@ -12,18 +12,37 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-## Usage
+Alternatively, use the Makefile to set up the environment:
 
 ```bash
-# with venv active
+cd ~/pet_projects/youtube-search
+make install
+```
+
+## Usage
+
+### Run with the activated venv
+
+```bash
+source .venv/bin/activate
 python3 scraper.py
+```
 
-# or without activating venv
+### Run without activating the venv
+
+`run.sh` will use `./.venv/bin/python` if the venv exists and will also load a local `.env` file:
+
+```bash
 bash run.sh
+```
 
-# or via Makefile
+### Run via Makefile
+
+```bash
 make run
 ```
+
+This means you do not need to keep the venv activated if you prefer not to.
 
 ## Environment
 
