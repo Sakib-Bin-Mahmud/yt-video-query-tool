@@ -12,8 +12,18 @@ if [ -x "$VENV/bin/python" ]; then
   PYTHON="$VENV/bin/python"
 fi
 
-# Usage: run.sh [script]
-# Default script is api_scraper.py; pass rss_scraper.py to run the RSS scraper
-SCRIPT=${1:-api_scraper.py}
+# Usage: run.sh [console-script]
+# Default console script is yt-video-query-tool-api; pass yt-video-query-tool-rss to run the RSS scraper
+SCRIPT=${1:-yt-video-query-tool-api}
 
-exec "$PYTHON" "$SCRIPT"
+# prefer venv-installed console script when available
+if [ -x "$VENV/bin/$SCRIPT" ]; then
+  exec "$VENV/bin/$SCRIPT" "$@"
+fi
+
+if command -v "$SCRIPT" >/dev/null 2>&1; then
+  exec "$SCRIPT" "$@"
+fi
+
+echo "Console script '$SCRIPT' not found. Install the package (pip install -e .) or run via .venv/bin/$SCRIPT"
+exit 1

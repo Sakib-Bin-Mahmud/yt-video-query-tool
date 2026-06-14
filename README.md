@@ -23,27 +23,30 @@ make install
 
 ### Run with the activated venv
 
+After installing (editable or normal), the package provides console scripts that are available on the environment `bin/`:
+
 ```bash
 source .venv/bin/activate
-python3 api_scraper.py
+# run the installed console scripts
+yt-video-query-tool-api
+yt-video-query-tool-rss
 ```
 
 ### Run without activating the venv
 
-`run.sh` will use `./.venv/bin/python` if the venv exists and will also load a local `.env` file:
+`run.sh` will prefer the venv-installed console scripts (or any installed console script on PATH):
 
 ```bash
-bash run.sh            # runs api_scraper.py by default
-bash run.sh rss_scraper.py  # run the RSS scraper instead
+bash run.sh                # runs yt-video-query-tool-api by default
+bash run.sh yt-video-query-tool-rss  # run the RSS scraper instead
 ```
 
 ### Run via Makefile
 
 ```bash
-make run               # runs api_scraper.py by default
-make run SCRIPT=rss_scraper.py  # run the RSS scraper
-
-make run-rss           # convenience target for rss_scraper.py
+make install
+make run                  # runs yt-video-query-tool-api using .venv/bin/
+make run-rss              # runs yt-video-query-tool-rss
 ```
 
 This means you do not need to keep the venv activated if you prefer not to.

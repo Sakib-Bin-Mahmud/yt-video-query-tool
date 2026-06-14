@@ -1,7 +1,8 @@
 .PHONY: venv install run run-rss
 
 VENV=.venv
-SCRIPT?=api_scraper.py
+# default console script name (executable in venv/bin/)
+SCRIPT?=yt-video-query-tool-api
 
 venv:
 	python3 -m venv $(VENV)
@@ -11,7 +12,7 @@ install: venv
 	$(VENV)/bin/pip install -r requirements.txt
 
 run:
-	$(VENV)/bin/python $(SCRIPT)
+	$(VENV)/bin/$(SCRIPT)
 
 run-rss:
-	$(VENV)/bin/python rss_scraper.py
+	$(VENV)/bin/yt-video-query-tool-rss
