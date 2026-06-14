@@ -14,4 +14,4 @@ run:
 	$(VENV)/bin/python $(SCRIPT)
 
 run-rss:
-	$(VENV)/bin/python rss_scrapper.py
+	$(VENV)/bin/python rss_scraper.py
