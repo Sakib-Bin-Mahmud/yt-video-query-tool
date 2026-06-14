@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yt-video-query-tool"
+version = "0.1.0"
+description = "YouTube video query tools (API and RSS scrapers)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "requests",
+    "python-dotenv",
+    "feedparser",
+]
+
+[project.scripts]
+yt-video-query-tool-api = "yt_video_query_tool.api:main"
+yt-video-query-tool-rss = "yt_video_query_tool.rss:main"

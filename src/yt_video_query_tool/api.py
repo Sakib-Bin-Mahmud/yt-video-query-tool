@@ -11,9 +11,7 @@ if load_dotenv:
 
 API_KEY = os.environ.get("YOUTUBE_API_KEY")
 if not API_KEY:
-    raise SystemExit(
-        "Environment variable YOUTUBE_API_KEY not set."
-    )
+    raise SystemExit("Environment variable YOUTUBE_API_KEY not set.")
 
 CHANNEL_ID = "UCxHoBXkY88Tb8z1Ssj6CWsQ"
 
@@ -112,9 +110,6 @@ def main():
         print(snippet["title"])
         print(f"https://youtube.com/watch?v={video_id}")
         print("-" * 80)
-
-
-from yt_video_query_tool.api import main
 
 
 if __name__ == "__main__":

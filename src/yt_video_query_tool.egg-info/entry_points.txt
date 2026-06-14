@@ -1,0 +1,3 @@
+[console_scripts]
+yt-video-query-tool-api = yt_video_query_tool.api:main
+yt-video-query-tool-rss = yt_video_query_tool.rss:main
