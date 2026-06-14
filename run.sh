@@ -12,4 +12,4 @@ if [ -x "$VENV/bin/python" ]; then
   PYTHON="$VENV/bin/python"
 fi
 
-exec "$PYTHON" scraper.py
+exec "$PYTHON" api_scraper.py

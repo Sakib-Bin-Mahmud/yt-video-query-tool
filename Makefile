@@ -10,4 +10,4 @@ install: venv
 	$(VENV)/bin/pip install -r requirements.txt
 
 run:
-	$(VENV)/bin/python scraper.py
+	$(VENV)/bin/python api_scraper.py

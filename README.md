@@ -25,7 +25,7 @@ make install
 
 ```bash
 source .venv/bin/activate
-python3 scraper.py
+python3 api_scraper.py
 ```
 
 ### Run without activating the venv
