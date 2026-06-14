@@ -33,13 +33,17 @@ python3 api_scraper.py
 `run.sh` will use `./.venv/bin/python` if the venv exists and will also load a local `.env` file:
 
 ```bash
-bash run.sh
+bash run.sh            # runs api_scraper.py by default
+bash run.sh rss_scrapper.py  # run the RSS scraper instead
 ```
 
 ### Run via Makefile
 
 ```bash
-make run
+make run               # runs api_scraper.py by default
+make run SCRIPT=rss_scrapper.py  # run the RSS scraper
+
+make run-rss           # convenience target for rss_scrapper.py
 ```
 
 This means you do not need to keep the venv activated if you prefer not to.

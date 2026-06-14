@@ -12,4 +12,8 @@ if [ -x "$VENV/bin/python" ]; then
   PYTHON="$VENV/bin/python"
 fi
 
-exec "$PYTHON" api_scraper.py
+# Usage: run.sh [script]
+# Default script is api_scraper.py; pass rss_scrapper.py to run the RSS scraper
+SCRIPT=${1:-api_scraper.py}
+
+exec "$PYTHON" "$SCRIPT"
