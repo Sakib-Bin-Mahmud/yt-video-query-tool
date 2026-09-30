@@ -1,66 +1,89 @@
 # yt-video-query-tool
 
-A small YouTube search scraper that uses `YOUTUBE_API_KEY` from the environment or a `.env` file.
+Tools for collecting YouTube videos from news channels via the YouTube Data API v3.
+The main tool is the **multi-channel research collector** (`yt-video-query-tool-collect`),
+built for the Bangla broadcast-news claim-verification project. The original single-channel
+API and RSS scripts are still included.
 
 ## Setup
 
 ```bash
-cd ~/pet_projects/youtube-search
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt
+git clone https://github.com/Sakib-Bin-Mahmud/yt-video-query-tool
+cd yt-video-query-tool
+make install          # creates .venv and installs the package (editable) + pytest
+cp .env.example .env  # then put your API key in .env
 ```
 
-Alternatively, use the Makefile to set up the environment:
+Never commit `.env` or paste the key into notes or code. If a key has been exposed, regenerate it
+in Google Cloud Console → APIs & Services → Credentials, and restrict it to YouTube Data API v3.
+
+## Research collector
 
 ```bash
-cd ~/pet_projects/youtube-search
-make install
+.venv/bin/yt-video-query-tool-collect \
+    --start 2026-02-18 --end 2026-06-19 \
+    --only "Jamuna TV,Somoy TV,News24" \
+    --comments --thumbnails
 ```
 
-## Usage
+or `make collect ARGS="--start 2026-02-18 --end 2026-06-19 --comments"`.
 
-### Run with the activated venv
+| Option | Meaning |
+|---|---|
+| `--channels` | CSV with `name,channel_id[,handle]` (default `channels.csv`, the top 10 Bangla news channels) |
+| `--start` / `--end` | Date window, start inclusive, end exclusive (UTC) |
+| `--only` | Restrict to some channels (names or IDs, comma-separated) |
+| `--keywords` | Topic terms file, one per line (default: built-in Bangla + English fuel/price/market terms) |
+| `--comments` / `--max-comments` | Fetch comments + replies for keyword-matched videos (default max 500 each) |
+| `--thumbnails` | Download the best thumbnail for keyword-matched videos |
+| `--force` | Re-collect even if output already exists |
 
-After installing (editable or normal), the package provides console scripts that are available on the environment `bin/`:
+**How it works**
+
+- Enumerates *every* upload through each channel's uploads playlist. It doesn't use `search.list`,
+  which costs 100 quota units per call and silently misses videos.
+- Saves **all** videos in the window with `is_match` / `matched_terms` flags, so you can measure the
+  keyword filter's recall later.
+- Stores comment authors only as a truncated SHA-256 hash, never names or channel IDs.
+- Is resumable: channels and comment files already on disk are skipped. If the daily quota runs out
+  it stops cleanly (exit code 3), so you can re-run the same command the next day.
+
+**Output** (in `data/`, git-ignored):
+
+```
+data/videos/<channel_id>.jsonl   metadata, stats, duration, thumbnail URL, match flags
+data/comments/<video_id>.jsonl   comments + replies (matched videos)
+data/thumbnails/<video_id>.jpg
+data/run_log.json                per-channel counts, estimated quota used
+```
+
+**Quota:** the default daily quota is 10,000 units. Listing and enrichment cost about 1 unit per
+50 videos, and comments cost at least 1 unit per matched video. The playlist is read newest-first,
+so the collector pages through everything uploaded *since* `--start`, not just the window.
+Bangla news channels upload very heavily (often 100+ videos per day), so a 10-channel run can
+take several days of quota. Start with `--only` on 2–3 channels, check `run_log.json`, and let
+the resume logic spread the work across days. Use a narrower `--keywords` file before turning on
+`--comments` at scale.
+
+**Older windows (e.g. the 2022 fuel hike):** the uploads playlist reportedly exposes only a
+channel's most recent ~20,000 uploads. For a busy channel that may cover only a few months back.
+Check how far back each channel reaches before relying on it; windows beyond that need
+date-sliced `search.list` queries, which are quota-expensive and incomplete.
+
+**Transcripts** are not available through the API for other people's videos (`captions.download`
+requires ownership). They need a separate ASR step. Check YouTube's Terms of Service on
+downloading audio, or apply to the YouTube Researcher Program.
+
+## Legacy scripts
 
 ```bash
-source .venv/bin/activate
-# run the installed console scripts
-yt-video-query-tool-api
-yt-video-query-tool-rss
+.venv/bin/yt-video-query-tool-api   # single channel, prints matches (config at top of api.py)
+.venv/bin/yt-video-query-tool-rss   # RSS feed: only the ~15 most recent videos
+bash run.sh [console-script]        # runs from .venv without activating it
 ```
 
-### Run without activating the venv
-
-`run.sh` will prefer the venv-installed console scripts (or any installed console script on PATH):
+## Tests
 
 ```bash
-bash run.sh                # runs yt-video-query-tool-api by default
-bash run.sh yt-video-query-tool-rss  # run the RSS scraper instead
-```
-
-### Run via Makefile
-
-```bash
-make install
-make run                  # runs yt-video-query-tool-api using .venv/bin/
-make run-rss              # runs yt-video-query-tool-rss
-```
-
-This means you do not need to keep the venv activated if you prefer not to.
-
-## Environment
-
-Set your API key in one of these ways:
-
-```bash
-export YOUTUBE_API_KEY=your_api_key_here
-```
-
-or create a `.env` file:
-
-```text
-YOUTUBE_API_KEY=your_api_key_here
+make test
 ```

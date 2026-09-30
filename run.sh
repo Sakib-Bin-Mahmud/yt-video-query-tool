@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Load .env if present (simple parser, ignores comments)
 if [ -f .env ]; then
-  export $(grep -v '^\s*#' .env | sed '/^\s*$$/d' | xargs)
+  export $(grep -v '^\s*#' .env | sed '/^\s*$/d' | xargs)
 fi
 
 VENV=.venv
@@ -15,6 +15,7 @@ fi
 # Usage: run.sh [console-script]
 # Default console script is yt-video-query-tool-api; pass yt-video-query-tool-rss to run the RSS scraper
 SCRIPT=${1:-yt-video-query-tool-api}
+if [ $# -gt 0 ]; then shift; fi
 
 # prefer venv-installed console script when available
 if [ -x "$VENV/bin/$SCRIPT" ]; then
