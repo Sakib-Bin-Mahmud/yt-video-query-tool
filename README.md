@@ -86,6 +86,39 @@ date-sliced `search.list` queries, which are quota-expensive and incomplete.
 requires ownership). They need a separate ASR step. Check YouTube's Terms of Service on
 downloading audio, or apply to the YouTube Researcher Program.
 
+## ASR pilot (transcripts + numeric claim candidates)
+
+```bash
+pip install -e ".[asr]"                                   # yt-dlp + faster-whisper
+yt-video-query-tool-transcribe --sample-only              # draw the sample, check it
+yt-video-query-tool-transcribe                            # download, transcribe, report
+```
+
+Defaults: 10 fuel-titled videos per channel (5 before / 5 after 19 April, window 12–26 April)
+from News24, Channel 24, Independent Television, ATN Bangla News and BanglaVision NEWS, each
+30 s to 15 min long, using Whisper `large-v3` with Bangla forced.
+
+- **Transient audio:** each video's audio goes to a temporary folder and is deleted as soon as
+  it has been transcribed. Only transcripts are kept (`data/asr/transcripts/<video_id>.json`, with
+  segment and word timestamps and confidences).
+- **Fixed sample:** `data/asr/sample.csv` is reused on every run (`--resample` draws a new one,
+  `--seed` sets the random draw). Finished videos are skipped, and failed ones are retried.
+- **Candidates:** `data/asr/candidates.csv` lists every segment with a number and a price/unit word,
+  with surrounding context, a timestamped link and empty annotation columns. It opens in Excel with
+  Bangla intact. `summary.json` reports candidates per video by channel. These are *candidates*,
+  so annotation decides which are verifiable claims.
+- `--report-only` rebuilds the candidates from existing transcripts without loading any model.
+
+**Speed:** `large-v3` on CPU is slow, roughly real time or slower; a 50-video sample is a few hours
+of audio. With an NVIDIA GPU, use `--device cuda --compute-type float16`. For a quick trial, use
+`--model medium --per-channel 2`. If YouTube downloads fail with JavaScript or "sign in" errors,
+update yt-dlp (`pip install -U yt-dlp`); recent versions may also need a JavaScript runtime such
+as Deno installed.
+
+**Terms of Service:** downloading audio is outside YouTube's own features. This tool keeps audio
+only for as long as transcription takes, for non-commercial research. Check that this fits your
+institution's research-ethics requirements.
+
 ## Legacy scripts
 
 ```bash

@@ -16,11 +16,13 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
+asr = ["yt-dlp", "faster-whisper"]
 
 [project.scripts]
 yt-video-query-tool-api = "yt_video_query_tool.api:main"
 yt-video-query-tool-rss = "yt_video_query_tool.rss:main"
 yt-video-query-tool-collect = "yt_video_query_tool.collect:main"
+yt-video-query-tool-transcribe = "yt_video_query_tool.transcribe:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
