@@ -44,6 +44,18 @@ or `make collect ARGS="--start 2026-02-18 --end 2026-06-19 --comments"`.
   which costs 100 quota units per call and silently misses videos.
 - Saves **all** videos in the window with `is_match` / `matched_terms` flags, so you can measure the
   keyword filter's recall later.
+- Matches on the **title and the description**. Lines repeated across many of a channel's
+  descriptions (SEO footers such as "Gas and oil, Electricity industry…", social links, hashtag
+  blocks) are excluded, and tags are not matched. Bangla terms match as whole words with
+  inflectional suffixes (`চালের` matches `চাল`; `চালিয়ে` does not). `title_terms` and
+  `description_terms` are saved separately so you can use a stricter title-only filter.
+- Re-applies matching on every run from the data already on disk, so changing the keyword list or
+  matcher costs no quota.
+- Flags **truncated history**. If a channel's uploads list ends before `--start`, it prints a
+  warning and records `reached_start: false` and the actual `coverage_start` in `run_log.json`
+  and `videos/<channel_id>.meta.json`.
+- Comment failures on a single video (comments disabled, deleted video, `processingFailure`) are
+  logged under `comment_errors` and skipped. A later run retries them.
 - Stores comment authors only as a truncated SHA-256 hash, never names or channel IDs.
 - Is resumable: channels and comment files already on disk are skipped. If the daily quota runs out
   it stops cleanly (exit code 3), so you can re-run the same command the next day.

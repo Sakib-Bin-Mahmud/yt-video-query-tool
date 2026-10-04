@@ -62,7 +62,10 @@ class QuotaExceeded(RuntimeError):
 
 
 class ApiError(RuntimeError):
-    pass
+    def __init__(self, message: str, status: int | None = None, reason: str | None = None):
+        super().__init__(message)
+        self.status = status
+        self.reason = reason
 
 
 # --------------------------------------------------------------------------- #
@@ -91,7 +94,8 @@ class YouTubeClient:
                 time.sleep(2 ** attempt)
                 continue
             # Never include the URL: it contains the API key.
-            raise ApiError(f"{endpoint}: HTTP {resp.status_code} ({reason or 'unknown'})")
+            raise ApiError(f"{endpoint}: HTTP {resp.status_code} ({reason or 'unknown'})",
+                           status=resp.status_code, reason=reason)
         raise ApiError(f"{endpoint}: retries exhausted")
 
 
@@ -124,24 +128,74 @@ def duration_seconds(iso: str | None) -> int | None:
     return ((d * 24 + h) * 60 + mi) * 60 + s
 
 
+# Bangla letters/marks plus ZWNJ/ZWJ: a keyword must not be glued to more of these.
+_BN = "ঀ-৿‌‍"
+
+# Inflectional suffixes allowed after a Bangla keyword (case markers, classifiers,
+# plurals, emphatics). Anything else glued on (e.g. চাল + িয়ে = চালিয়ে "driving")
+# is treated as a different word. Longest first so the regex prefers full suffixes.
+BANGLA_SUFFIXES = sorted([
+    "ের", "এর", "র", "ে", "য়", "য়ে", "য়ের", "তে", "কে", "ও", "ই", "েই", "েও", "েরও", "েরই",
+    "টা", "টি", "টির", "টার", "টাই", "গুলো", "গুলোর", "গুলোতে", "গুলোকে", "সহ",
+    "রা", "দের", "দেরও", "বাবদ",
+], key=len, reverse=True)
+
+
 class KeywordMatcher:
-    def __init__(self, keywords: list[str]):
-        self.bangla, self.latin = [], []
+    """Match topic terms as whole words.
+
+    Latin terms use \\b boundaries. Bangla terms must start at a word boundary
+    and may only be followed by an allowed inflectional suffix.
+    """
+
+    def __init__(self, keywords: list[str], suffixes: list[str] = BANGLA_SUFFIXES):
+        suffix_alt = "|".join(re.escape(s) for s in suffixes)
+        self.patterns = []
         for kw in keywords:
             kw = unicodedata.normalize("NFC", kw.strip())
             if not kw:
                 continue
             if re.search(r"[A-Za-z]", kw):
-                self.latin.append((kw, re.compile(rf"\b{re.escape(kw.lower())}\b")))
+                rx = re.compile(rf"\b{re.escape(kw.lower())}\b")
+                self.patterns.append((kw, rx, True))
             else:
-                self.bangla.append(kw)
+                rx = re.compile(rf"(?<![{_BN}]){re.escape(kw)}(?:{suffix_alt})?(?![{_BN}])")
+                self.patterns.append((kw, rx, False))
 
     def match(self, text: str) -> list[str]:
         text = unicodedata.normalize("NFC", text or "")
         lower = text.lower()
-        hits = [kw for kw in self.bangla if kw in text]
-        hits += [kw for kw, rx in self.latin if rx.search(lower)]
-        return hits
+        return [kw for kw, rx, latin in self.patterns if rx.search(lower if latin else text)]
+
+
+def boilerplate_lines(descriptions: list[str], min_share: float = 0.05, min_count: int = 5) -> set[str]:
+    """Lines repeated across many of a channel's descriptions (SEO footers,
+    social links, hashtag blocks). Excluded from keyword matching."""
+    counts: dict[str, int] = {}
+    for d in descriptions:
+        for line in {ln.strip() for ln in (d or "").splitlines() if ln.strip()}:
+            counts[line] = counts.get(line, 0) + 1
+    threshold = max(min_count, min_share * len(descriptions))
+    return {line for line, n in counts.items() if n >= threshold}
+
+
+def strip_boilerplate(description: str, boilerplate: set[str]) -> str:
+    return "\n".join(ln for ln in (description or "").splitlines() if ln.strip() not in boilerplate)
+
+
+def flag_matches(rows: list[dict], matcher: KeywordMatcher) -> None:
+    """(Re)compute match flags in place on title + de-boilerplated description.
+
+    Tags are stored but not matched: channels stuff them with generic SEO terms.
+    """
+    boiler = boilerplate_lines([r.get("description") or "" for r in rows])
+    for r in rows:
+        title_terms = matcher.match(r.get("title") or "")
+        desc_terms = matcher.match(strip_boilerplate(r.get("description") or "", boiler))
+        r["title_terms"] = title_terms
+        r["description_terms"] = desc_terms
+        r["matched_terms"] = sorted(set(title_terms) | set(desc_terms))
+        r["is_match"] = bool(r["matched_terms"])
 
 
 def load_channels(path: Path, only: set[str] | None) -> list[dict]:
@@ -189,14 +243,19 @@ def uploads_playlist_id(client: YouTubeClient, channel_id: str) -> str:
     return items[0]["contentDetails"]["relatedPlaylists"]["uploads"]
 
 
-def list_video_ids(client, playlist_id, start: datetime, end: datetime, stop_after_old: int = 100):
-    """Yield (video_id, published_at) in [start, end).
+def list_video_ids(client, playlist_id, start: datetime, end: datetime,
+                   stop_after_old: int = 100) -> tuple[list[tuple[str, str]], bool]:
+    """Return ([(video_id, published_at) in [start, end)], reached_start).
 
     The uploads playlist is newest-first but not strictly (premieres, scheduled
     uploads), so we stop only after `stop_after_old` consecutive items older
     than `start` instead of at the first one.
+
+    reached_start is False when the playlist ran out before any upload older
+    than `start` appeared: the API only exposes a channel's most recent
+    uploads, so for busy channels the early part of the window is missing.
     """
-    page_token, old_streak = None, 0
+    out, page_token, old_streak, reached_start = [], None, 0, False
     while True:
         params = dict(part="contentDetails", playlistId=playlist_id, maxResults=50)
         if page_token:
@@ -209,16 +268,17 @@ def list_video_ids(client, playlist_id, start: datetime, end: datetime, stop_aft
                 continue
             ts = parse_date(published)
             if ts < start:
+                reached_start = True
                 old_streak += 1
                 if old_streak >= stop_after_old:
-                    return
+                    return out, reached_start
                 continue
             old_streak = 0
             if ts < end:
-                yield cd["videoId"], published
+                out.append((cd["videoId"], published))
         page_token = data.get("nextPageToken")
         if not page_token:
-            return
+            return out, reached_start
 
 
 def fetch_video_details(client, video_ids: list[str]) -> dict[str, dict]:
@@ -237,10 +297,8 @@ def best_thumbnail(thumbs: dict) -> str | None:
     return None
 
 
-def build_row(channel: dict, video: dict, matcher: KeywordMatcher, collected_at: str) -> dict:
+def build_row(channel: dict, video: dict, collected_at: str) -> dict:
     sn, st, cd = video["snippet"], video.get("statistics", {}), video.get("contentDetails", {})
-    text = " ".join([sn.get("title", ""), sn.get("description", ""), " ".join(sn.get("tags", []))])
-    matched = matcher.match(text)
     as_int = lambda k: int(st[k]) if k in st else None
     return {
         "channel_id": channel["channel_id"],
@@ -259,24 +317,26 @@ def build_row(channel: dict, video: dict, matcher: KeywordMatcher, collected_at:
         "like_count": as_int("likeCount"),
         "comment_count": as_int("commentCount"),
         "thumbnail_url": best_thumbnail(sn.get("thumbnails", {})),
-        "matched_terms": matched,
-        "is_match": bool(matched),
         "collected_at": collected_at,
     }
 
 
 def fetch_comments(client, video_id: str, max_comments: int) -> list[dict]:
-    rows, page_token = [], None
+    """Fetch comments + replies. Raises ApiError on failure; the caller decides
+    whether to skip the video. On a 400 processingFailure (seen on some videos
+    with order=time) it retries once with the default relevance order."""
+    rows, page_token, order = [], None, "time"
     while len(rows) < max_comments:
         params = dict(part="snippet,replies", videoId=video_id, maxResults=100,
-                      order="time", textFormat="plainText")
+                      order=order, textFormat="plainText")
         if page_token:
             params["pageToken"] = page_token
         try:
             data = client.get("commentThreads", **params)
         except ApiError as e:
-            if "403" in str(e) or "404" in str(e):  # comments disabled / video gone
-                return rows
+            if e.reason == "processingFailure" and order == "time" and not rows:
+                order = "relevance"
+                continue
             raise
         for th in data.get("items", []):
             top = th["snippet"]["topLevelComment"]
@@ -325,34 +385,63 @@ def download_thumbnail(session, url: str, dest: Path) -> None:
 # --------------------------------------------------------------------------- #
 def collect_channel(client, channel, start, end, matcher, out: Path, args) -> dict:
     videos_path = out / "videos" / f"{channel['channel_id']}.jsonl"
+    meta_path = out / "videos" / f"{channel['channel_id']}.meta.json"
     if videos_path.exists() and not args.force:
         rows = [json.loads(l) for l in videos_path.open(encoding="utf-8")]
-        print(f"  [skip] {channel['name']}: {len(rows)} videos already collected")
+        if meta_path.exists():
+            reached_start = json.loads(meta_path.read_text(encoding="utf-8"))["reached_start"]
+        else:  # data from an older version: infer from the earliest upload
+            earliest = min((parse_date(r["published_at"]) for r in rows if r.get("published_at")), default=None)
+            reached_start = earliest is not None and (earliest - start).total_seconds() < 86400
+        print(f"  [resume] {channel['name']}: {len(rows)} videos on disk, re-flagging matches (no API calls)")
     else:
         playlist = uploads_playlist_id(client, channel["channel_id"])
-        ids = [vid for vid, _ in list_video_ids(client, playlist, start, end)]
+        listed, reached_start = list_video_ids(client, playlist, start, end)
+        ids = [vid for vid, _ in listed]
         details = fetch_video_details(client, ids)
         now = datetime.now(timezone.utc).isoformat()
-        rows = [build_row(channel, details[i], matcher, now) for i in ids if i in details]
+        rows = [build_row(channel, details[i], now) for i in ids if i in details]
         rows.sort(key=lambda r: r["published_at"] or "")
-        write_jsonl(videos_path, rows)
+
+    # Matching is cheap and deterministic, so it is redone on every run: changing
+    # the keyword list or matcher never needs new API calls.
+    flag_matches(rows, matcher)
+    write_jsonl(videos_path, rows)
+    coverage_start = rows[0]["published_at"] if rows else None
+    meta_path.write_text(json.dumps({"reached_start": reached_start, "coverage_start": coverage_start,
+                                     "window_start": start.isoformat()}, indent=2), encoding="utf-8")
 
     matched = [r for r in rows if r["is_match"]]
-    print(f"  {channel['name']}: {len(rows)} videos in window, {len(matched)} keyword matches")
+    print(f"  {channel['name']}: {len(rows)} videos in window, {len(matched)} keyword matches "
+          f"({len(matched) / max(len(rows), 1):.0%})")
+    if not reached_start:
+        print(f"  [warning] {channel['name']}: history truncated, API uploads list starts at "
+              f"{coverage_start}, after --start. The early part of the window is missing.")
 
-    n_comments = 0
+    n_comments, comment_errors = 0, []
     for r in matched:
         if args.comments:
             cpath = out / "comments" / f"{r['video_id']}.jsonl"
             if not cpath.exists() or args.force:
-                comments = fetch_comments(client, r["video_id"], args.max_comments)
-                write_jsonl(cpath, comments)
-                n_comments += len(comments)
+                try:
+                    comments = fetch_comments(client, r["video_id"], args.max_comments)
+                except ApiError as e:
+                    # One bad video (comments disabled, deleted, processingFailure)
+                    # must not stop the channel. No file is written, so a later
+                    # run retries it.
+                    comment_errors.append({"video_id": r["video_id"], "status": e.status, "reason": e.reason})
+                else:
+                    write_jsonl(cpath, comments)
+                    n_comments += len(comments)
         if args.thumbnails:
             download_thumbnail(client.session, r["thumbnail_url"],
                                out / "thumbnails" / f"{r['video_id']}.jpg")
 
-    return {"videos": len(rows), "matched": len(matched), "new_comments": n_comments}
+    if comment_errors:
+        print(f"  {len(comment_errors)} video(s) skipped for comments (see run_log.json)")
+    return {"videos": len(rows), "matched": len(matched), "new_comments": n_comments,
+            "reached_start": reached_start, "coverage_start": coverage_start,
+            "comment_errors": comment_errors}
 
 
 def build_parser() -> argparse.ArgumentParser:
