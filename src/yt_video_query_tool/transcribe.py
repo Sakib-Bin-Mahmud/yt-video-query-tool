@@ -149,12 +149,31 @@ def download_audio(url: str, dest_dir: Path) -> Path:
         return Path(ydl.prepare_filename(info))
 
 
+def resolve_compute_type(device: str, compute_type: str) -> str:
+    """'auto' -> float16 on a CUDA GPU, int8 on CPU.
+
+    Whisper weights are stored in float16, which CPUs cannot run efficiently;
+    CTranslate2's own default then falls back to float32, the slowest option
+    (about 6x real time for large-v3 in the pilot). int8 is typically 2-4x faster.
+    """
+    if compute_type != "auto":
+        return compute_type
+    if device == "cpu":
+        return "int8"
+    try:
+        import ctranslate2
+        has_cuda = ctranslate2.get_cuda_device_count() > 0
+    except Exception:
+        has_cuda = False
+    return "float16" if has_cuda and device in ("auto", "cuda") else "int8"
+
+
 class WhisperTranscriber:
     def __init__(self, model: str, device: str, compute_type: str):
         from faster_whisper import WhisperModel
 
-        if compute_type == "auto":
-            compute_type = "default"
+        compute_type = resolve_compute_type(device, compute_type)
+        print(f"Loading {model} (device={device}, compute_type={compute_type})")
         self.model_name = model
         self.model = WhisperModel(model, device=device, compute_type=compute_type)
 
@@ -297,6 +316,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--device", default="auto", help="auto, cpu or cuda")
     p.add_argument("--compute-type", default="auto", help="e.g. float16 (GPU), int8 (CPU)")
     p.add_argument("--resample", action="store_true", help="redraw the sample even if sample.csv exists")
+    p.add_argument("--sample-file", type=Path,
+                   help="use this CSV (needs video_id, url; other sample columns optional) instead of drawing a sample, "
+                        "e.g. the same gold videos for every model in an ASR comparison")
     p.add_argument("--sample-only", action="store_true", help="draw/show the sample, then stop")
     p.add_argument("--report-only", action="store_true", help="skip download/ASR, rebuild candidates from transcripts")
     return p
@@ -310,6 +332,11 @@ def main(argv=None, transcriber_factory=None, download=download_audio) -> int:
 
     if args.report_only:
         sample = []
+    elif args.sample_file:
+        sample = [{**{k: "" for k in SAMPLE_FIELDS}, **r} for r in read_csv(args.sample_file)]
+        for r in sample:
+            r["url"] = r["url"] or f"https://www.youtube.com/watch?v={r['video_id']}"
+        print(f"Using sample file: {len(sample)} videos ({args.sample_file})")
     elif sample_path.exists() and not args.resample:
         sample = read_csv(sample_path)
         print(f"Using existing sample: {len(sample)} videos ({sample_path})")

@@ -119,6 +119,35 @@ as Deno installed.
 only for as long as transcription takes, for non-commercial research. Check that this fits your
 institution's research-ethics requirements.
 
+### Comparing ASR systems
+
+Whisper `large-v3` handles Bangla poorly, so check accuracy before scaling. The steps are:
+transcribe the same few videos with each system, hand-write gold transcripts for their first
+minutes, then score them.
+
+```bash
+# 1. A Bangla fine-tune of Whisper-medium, converted once for faster-whisper (int8, ~0.8 GB)
+pip install -e ".[convert]"
+ct2-transformers-converter --model bengaliAI/tugstugi_bengaliai-asr_whisper-medium \
+    --output_dir models/bn-whisper-medium-ct2 --quantization int8 \
+    --copy_files tokenizer.json preprocessor_config.json
+
+# 2. Same videos for every system (CSV with at least a video_id column)
+yt-video-query-tool-transcribe --sample-file data/asr_gold/videos.csv \
+    --out data/asr_bakeoff/large-v3 --model large-v3
+yt-video-query-tool-transcribe --sample-file data/asr_gold/videos.csv \
+    --out data/asr_bakeoff/bn-medium --model models/bn-whisper-medium-ct2
+
+# 3. Score against data/asr_gold/<video_id>.txt (first line "# end: 120" = seconds covered)
+yt-video-query-tool-asr-eval --gold data/asr_gold \
+    --system large-v3=data/asr_bakeoff/large-v3/transcripts \
+    --system bn-medium=data/asr_bakeoff/bn-medium/transcripts --csv data/asr_bakeoff/scores.csv
+```
+
+The evaluator reports WER, CER and **number precision/recall/F1** (digits normalised; Bangla number
+words such as দেড়, আড়াই and হাজার are counted). It also lists which numbers each system missed or
+invented. On CPU, `--compute-type auto` now uses int8 (float32 was ~6x real time in the pilot).
+
 ## Legacy scripts
 
 ```bash

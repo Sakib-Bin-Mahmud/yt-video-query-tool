@@ -16,13 +16,17 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
-asr = ["yt-dlp", "faster-whisper"]
+# av<17: faster-whisper 1.2.1 passes metadata_errors=, which PyAV 17+ rejects
+asr = ["yt-dlp", "faster-whisper", "av<17"]
+# only needed to convert Hugging Face Whisper fine-tunes for faster-whisper
+convert = ["ctranslate2", "transformers[torch]"]
 
 [project.scripts]
 yt-video-query-tool-api = "yt_video_query_tool.api:main"
 yt-video-query-tool-rss = "yt_video_query_tool.rss:main"
 yt-video-query-tool-collect = "yt_video_query_tool.collect:main"
 yt-video-query-tool-transcribe = "yt_video_query_tool.transcribe:main"
+yt-video-query-tool-asr-eval = "yt_video_query_tool.asr_eval:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
